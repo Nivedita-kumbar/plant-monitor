@@ -2,7 +2,7 @@
 import os
 import requests
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -84,6 +84,60 @@ def get_sensors():
             "details": str(error)
         }), 502
 
+
+@app.route("/api/history")
+def get_sensor_history():
+    if not CHANNEL_ID or not READ_API_KEY:
+        return jsonify({"error": "ThingSpeak credentials are missing"}), 500
+
+    try:
+        results = request.args.get("results", 100, type=int)
+        results = max(1, min(results or 100, 8000))
+
+        url = f"https://api.thingspeak.com/channels/{CHANNEL_ID}/feeds.json"
+
+        response = requests.get(
+            url,
+            params={
+                "api_key": READ_API_KEY,
+                "results": results
+            },
+            timeout=10
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+        feeds = data.get("feeds", [])
+
+        history = []
+
+        for feed in feeds:
+            history.append({
+                "entry_id": feed.get("entry_id"),
+                "created_at": feed.get("created_at"),
+                "light_lux": feed.get("field1"),
+                "humidity_raw": feed.get("field2"),
+                "temperature_raw": feed.get("field3"),
+                "soil_moisture": feed.get("field4"),
+                "soil_raw": feed.get("field5")
+            })
+
+        return jsonify({
+            "status": "success",
+            "count": len(history),
+            "history": history
+        })
+
+    except requests.RequestException:
+        return jsonify({
+            "error": "Could not retrieve historical sensor data"
+        }), 502
+
+    except ValueError:
+        return jsonify({
+            "error": "Invalid response from ThingSpeak"
+        }), 502
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
