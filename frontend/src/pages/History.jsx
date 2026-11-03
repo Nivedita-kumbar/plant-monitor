@@ -1,42 +1,61 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-const API = "http://127.0.0.1:5000/api/history";
+const selectStyle = {
+  padding: "12px 16px",
+  borderRadius: "10px",
+  border: "2px solid #39875b",
+  backgroundColor: "#245c3a",
+  color: "#ffffff",
+  colorScheme: "dark",
+  fontSize: "14px",
+  fontWeight: "600",
+  minWidth: "180px",
+  cursor: "pointer",
+  outline: "none",
+};
+
+const optionStyle = {
+  backgroundColor: "#ffffff",
+  color: "#245c3a",
+};
 
 function History() {
   const [history, setHistory] = useState([]);
+  const [zones, setZones] = useState([]);
   const [search, setSearch] = useState("");
   const [period, setPeriod] = useState("all");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [selectedZone, setSelectedZone] = useState("all");
 
-  const fetchHistory = async () => {
+  function loadHistory() {
     try {
-      const response = await fetch(`${API}?results=8000`);
-      if (!response.ok) throw new Error("Unable to load history");
+      const savedAlerts = JSON.parse(
+        localStorage.getItem("plantAlertHistory") || "[]"
+      );
 
-      const result = await response.json();
-      if (result.status !== "success") {
-        throw new Error("Backend returned an error");
-      }
+      const savedZones = JSON.parse(
+        localStorage.getItem("plantZones") || "[]"
+      );
 
       setHistory(
-        result.history.map((item) => ({
-          ...item,
-          timestamp: new Date(item.created_at).getTime(),
-        })).sort((a, b) => b.timestamp - a.timestamp)
+        savedAlerts.sort(
+          (a, b) =>
+            new Date(b.startedAt).getTime() -
+            new Date(a.startedAt).getTime()
+        )
       );
-      setError("");
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+
+      setZones(savedZones);
+    } catch (error) {
+      console.error("Could not load alert history:", error);
     }
-  };
+  }
 
   useEffect(() => {
-    fetchHistory();
-    const interval = setInterval(fetchHistory, 20000);
+    loadHistory();
+
+    const interval = setInterval(loadHistory, 5000);
+
     return () => clearInterval(interval);
   }, []);
 
@@ -50,49 +69,67 @@ function History() {
     };
 
     return history.filter((item) => {
+      const timestamp = new Date(item.startedAt).getTime();
+
       const matchesPeriod =
         period === "all" ||
-        item.timestamp >= now - durations[period];
+        timestamp >= now - durations[period];
+
+      const matchesZone =
+        selectedZone === "all" ||
+        item.zoneId === selectedZone;
 
       const searchable = [
-        item.entry_id,
-        item.created_at,
-        item.light_lux,
-        item.humidity_raw,
-        item.temperature_raw,
-        item.soil_moisture,
-      ].join(" ").toLowerCase();
+        item.zoneId,
+        item.zoneName,
+        item.message,
+        item.status,
+      ]
+        .join(" ")
+        .toLowerCase();
 
-      return matchesPeriod && searchable.includes(search.toLowerCase());
+      return (
+        matchesPeriod &&
+        matchesZone &&
+        searchable.includes(search.toLowerCase())
+      );
     });
-  }, [history, period, search]);
+  }, [history, period, search, selectedZone]);
+
+  const activeCount = history.filter(
+    (item) => item.status === "active"
+  ).length;
+
+  const resolvedCount = history.filter(
+    (item) => item.status === "resolved"
+  ).length;
 
   const downloadCSV = () => {
     const headers = [
-      "Entry ID",
-      "Date and Time",
-      "Light (lux)",
-      "Humidity Raw (ADC)",
-      "Temperature Raw (ADC)",
-      "Soil Moisture (relative %)",
-      "Soil Raw",
+      "Zone ID",
+      "Zone Name",
+      "Alert",
+      "Status",
+      "Started At",
+      "Resolved At",
     ];
 
     const rows = filteredHistory.map((item) => [
-      item.entry_id,
-      item.created_at,
-      item.light_lux,
-      item.humidity_raw,
-      item.temperature_raw,
-      item.soil_moisture,
-      item.soil_raw,
+      item.zoneId,
+      item.zoneName,
+      item.message,
+      item.status,
+      item.startedAt,
+      item.resolvedAt || "",
     ]);
 
     const csv = [headers, ...rows]
       .map((row) =>
-        row.map((value) =>
-          `"${String(value ?? "").replace(/"/g, '""')}"`
-        ).join(",")
+        row
+          .map((value) =>
+            `"${String(value ?? "").replace(/"/g, '""')}"`
+          )
+          .join(",")
       )
       .join("\n");
 
@@ -102,9 +139,11 @@ function History() {
 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
+
     link.href = url;
-    link.download = "plant-sensor-history.csv";
+    link.download = "plant-alert-history.csv";
     link.click();
+
     URL.revokeObjectURL(url);
   };
 
@@ -112,8 +151,8 @@ function History() {
     <div className="history-page">
       <div className="history-heading">
         <div>
-          <h2>Plant History 📜</h2>
-          <p>Your sensor station's recorded readings.</p>
+          <h2>Plant Alert History 📜</h2>
+          <p>Track plant alerts across all your nursery zones.</p>
         </div>
 
         <button
@@ -125,96 +164,165 @@ function History() {
         </button>
       </div>
 
+      {/* Statistics */}
       <div className="history-stats">
         <div className="history-stat">
-          <span>Total Records</span>
+          <span>Total Alerts</span>
           <h3>{history.length}</h3>
         </div>
 
         <div className="history-stat">
-          <span>Displayed Records</span>
-          <h3>{filteredHistory.length}</h3>
+          <span>Active Alerts</span>
+          <h3>{activeCount}</h3>
         </div>
 
         <div className="history-stat">
-          <span>Latest Reading</span>
-          <h3>
-            {history.length
-              ? new Date(history[0].timestamp).toLocaleTimeString()
-              : "--"}
-          </h3>
+          <span>Resolved Alerts</span>
+          <h3>{resolvedCount}</h3>
         </div>
       </div>
 
+      {/* Filters */}
       <div className="history-filters">
         <input
           type="text"
-          placeholder="Search readings..."
+          placeholder="Search alerts or zones..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
 
         <select
-          value={period}
-          onChange={(e) => setPeriod(e.target.value)}
+          value={selectedZone}
+          onChange={(e) => setSelectedZone(e.target.value)}
+          style={selectStyle}
         >
-          <option value="all">All Time</option>
-          <option value="1h">Last 1 Hour</option>
-          <option value="24h">Last 24 Hours</option>
-          <option value="7d">Last 7 Days</option>
+          <option value="all" style={optionStyle}>
+            All Zones
+          </option>
+
+          {zones.map((zone) => (
+            <option
+              key={zone.id}
+              value={zone.id}
+              style={optionStyle}
+            >
+              {zone.id} - {zone.name}
+            </option>
+          ))}
         </select>
 
-        <button onClick={fetchHistory}>↻ Refresh</button>
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+          style={selectStyle}
+        >
+          <option value="all" style={optionStyle}>
+            All Time
+          </option>
+          <option value="1h" style={optionStyle}>
+            Last 1 Hour
+          </option>
+          <option value="24h" style={optionStyle}>
+            Last 24 Hours
+          </option>
+          <option value="7d" style={optionStyle}>
+            Last 7 Days
+          </option>
+        </select>
+
+        <button onClick={loadHistory}>
+          ↻ Refresh
+        </button>
       </div>
 
-      {error && <p className="history-error">{error}</p>}
+      {/* Zone-wise alert history */}
+      {zones.map((zone) => {
+        const zoneAlerts = filteredHistory.filter(
+          (item) => item.zoneId === zone.id
+        );
 
-      {loading ? (
-        <p>Loading history...</p>
-      ) : (
-        <div className="history-table-container">
-          <table className="history-table">
-            <thead>
-              <tr>
-                <th>Entry</th>
-                <th>Date & Time</th>
-                <th>Light (lux)</th>
-                <th>Humidity (ADC)</th>
-                <th>Temperature (ADC)</th>
-                <th>Soil (%)</th>
-                <th>Soil Raw</th>
-              </tr>
-            </thead>
+        if (
+          selectedZone !== "all" &&
+          selectedZone !== zone.id
+        ) {
+          return null;
+        }
 
-            <tbody>
-              {filteredHistory.map((item) => (
-                <tr key={item.entry_id}>
-                  <td>#{item.entry_id}</td>
-                  <td>
-                    {new Date(item.timestamp).toLocaleString()}
-                  </td>
-                  <td>{item.light_lux ?? "--"}</td>
-                  <td>{item.humidity_raw ?? "--"}</td>
-                  <td>{item.temperature_raw ?? "--"}</td>
-                  <td>{item.soil_moisture ?? "--"}%</td>
-                  <td>{item.soil_raw ?? "--"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        return (
+          <section
+            className="zone-history-section"
+            key={zone.id}
+          >
+            <div className="zone-history-heading">
+              <div>
+                <h3>🌱 {zone.id}</h3>
+                <p>{zone.name}</p>
+              </div>
 
-          {filteredHistory.length === 0 && (
-            <div className="empty-history">
-              No matching sensor records found.
+              <span className="zone-alert-count">
+                {zoneAlerts.length} Alerts
+              </span>
             </div>
-          )}
+
+            {zoneAlerts.length === 0 ? (
+              <div className="empty-history">
+                No alerts recorded for this zone.
+              </div>
+            ) : (
+              <div className="alert-history-list">
+                {zoneAlerts.map((item) => (
+                  <div
+                    className="alert-history-card"
+                    key={item.id}
+                  >
+                    <div className="alert-history-top">
+                      <strong>⚠️ {item.message}</strong>
+
+                      <span
+                        className={
+                          item.status === "active"
+                            ? "alert-status active"
+                            : "alert-status resolved"
+                        }
+                      >
+                        {item.status === "active"
+                          ? "Active"
+                          : "Resolved"}
+                      </span>
+                    </div>
+
+                    <p>
+                      <strong>Started:</strong>{" "}
+                      {new Date(
+                        item.startedAt
+                      ).toLocaleString()}
+                    </p>
+
+                    {item.resolvedAt && (
+                      <p>
+                        <strong>Resolved:</strong>{" "}
+                        {new Date(
+                          item.resolvedAt
+                        ).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
+
+      {zones.length === 0 && (
+        <div className="empty-history">
+          No zones have been created yet.
         </div>
       )}
 
       <p className="history-note">
-        Readings refresh automatically every 20 seconds.
-        Humidity and temperature are raw ADC values.
-        Soil moisture is a calibrated relative percentage.
+        Only alert events are displayed. Normal sensor readings
+        are not stored in this history.
       </p>
     </div>
   );

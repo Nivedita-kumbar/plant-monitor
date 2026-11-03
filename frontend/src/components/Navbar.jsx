@@ -9,6 +9,7 @@ function Navbar() {
 
       <div className="nav-links">
         <NavLink to="/" end>Plant Profiles</NavLink>
+        <NavLink to="/zones">Zones</NavLink>
         <NavLink to="/graphs">Sensor Graphs</NavLink>
         <NavLink to="/history">Plant History</NavLink>
       </div>
@@ -17,3 +18,4 @@ function Navbar() {
 }
 
 export default Navbar;
+

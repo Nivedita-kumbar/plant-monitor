@@ -5,6 +5,7 @@ const defaultThresholds = {
   minLight: 100,
   minSoil: 40,
   maxSoil: 80,
+  alertTolerance: 20,
 };
 
 function Profiles() {
@@ -29,26 +30,39 @@ function Profiles() {
     ...defaultThresholds,
   });
 
+  // Save profiles
   useEffect(() => {
     localStorage.setItem("plantProfiles", JSON.stringify(profiles));
   }, [profiles]);
 
+  // Maintain selected profile
   useEffect(() => {
     if (profiles.length > 0 && !profiles.some(p => p.id === selectedId)) {
       setSelectedId(profiles[0].id);
     }
+
     if (profiles.length === 0) {
       setSelectedId("");
     }
   }, [profiles, selectedId]);
 
+  // Fetch live sensor data
   const fetchSensors = async () => {
     try {
-      const response = await fetch("http://127.0.0.1:5000/api/sensors");
+      const response = await fetch(
+        "http://127.0.0.1:5000/api/sensors"
+      );
+
       if (!response.ok) throw new Error();
 
-      setSensors(await response.json());
-      setError("");
+      const data = await response.json();
+
+      if (data.status === "success") {
+        setSensors(data);
+        setError("");
+      } else {
+        throw new Error();
+      }
     } catch {
       setError("Could not connect to the sensor backend.");
     }
@@ -56,12 +70,16 @@ function Profiles() {
 
   useEffect(() => {
     fetchSensors();
+
     const interval = setInterval(fetchSensors, 20000);
+
     return () => clearInterval(interval);
   }, []);
 
+  // Reset form
   const resetForm = () => {
     setEditingId(null);
+
     setForm({
       name: "",
       stage: "Seedling",
@@ -69,11 +87,25 @@ function Profiles() {
     });
   };
 
+  // Save or update profile
   const saveProfile = (e) => {
     e.preventDefault();
 
+    if (!form.name.trim()) {
+      alert("Please enter a plant name.");
+      return;
+    }
+
     if (Number(form.maxSoil) < Number(form.minSoil)) {
       alert("Maximum soil moisture must be greater than minimum.");
+      return;
+    }
+
+    if (
+      Number(form.alertTolerance) < 0 ||
+      Number(form.alertTolerance) > 50
+    ) {
+      alert("Alert tolerance must be between 0 and 50%.");
       return;
     }
 
@@ -81,7 +113,11 @@ function Profiles() {
       setProfiles(previous =>
         previous.map(profile =>
           profile.id === editingId
-            ? { ...form, id: editingId, name: form.name.trim() }
+            ? {
+                ...form,
+                id: editingId,
+                name: form.name.trim(),
+              }
             : profile
         )
       );
@@ -99,6 +135,7 @@ function Profiles() {
     resetForm();
   };
 
+  // Edit profile
   const editProfile = (profile) => {
     setForm({
       name: profile.name,
@@ -106,14 +143,19 @@ function Profiles() {
       minLight: profile.minLight,
       minSoil: profile.minSoil,
       maxSoil: profile.maxSoil,
+      alertTolerance: profile.alertTolerance ?? 20,
     });
 
     setEditingId(profile.id);
     setViewingProfile(null);
 
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+    window.scrollTo({
+      top: document.body.scrollHeight,
+      behavior: "smooth",
+    });
   };
 
+  // Delete profile
   const deleteProfile = (id) => {
     const confirmed = window.confirm(
       "Are you sure you want to delete this plant profile?"
@@ -121,67 +163,93 @@ function Profiles() {
 
     if (!confirmed) return;
 
-    setProfiles(previous => previous.filter(p => p.id !== id));
+    setProfiles(previous =>
+      previous.filter(profile => profile.id !== id)
+    );
 
     if (selectedId === id) setSelectedId("");
 
     if (editingId === id) resetForm();
 
-    if (viewingProfile?.id === id) setViewingProfile(null);
+    if (viewingProfile?.id === id) {
+      setViewingProfile(null);
+    }
   };
 
-  const selectedProfile = profiles.find(p => p.id === selectedId);
+  const selectedProfile = profiles.find(
+    profile => profile.id === selectedId
+  );
 
+  // Calculate personalised alerts using tolerance
+  const getPlantAlerts = (profile) => {
+    if (!sensors || !profile) {
+      return [{
+        type: "waiting",
+        message: "Waiting for sensor data",
+      }];
+    }
 
-const getPlantAlerts = (profile) => {
-  if (!sensors || !profile) {
-    return [{
-      type: "waiting",
-      message: "Waiting for sensor data",
-    }];
-  }
+    const light = Number(sensors.light_lux);
+    const soil = Number(sensors.soil_moisture);
 
-  const light = Number(sensors.light_lux);
-  const soil = Number(sensors.soil_moisture);
+    const tolerance = Number(profile.alertTolerance ?? 20);
 
-  const alerts = [];
+    const minLight = Number(profile.minLight);
+    const minSoil = Number(profile.minSoil);
+    const maxSoil = Number(profile.maxSoil);
 
-  if (Number.isFinite(light) && light < Number(profile.minLight)) {
-    alerts.push({
-      type: "warning",
-      message: `Low light: ${light} lux (minimum ${profile.minLight} lux)`,
-    });
-  }
+    const alerts = [];
 
-  if (Number.isFinite(soil) && soil < Number(profile.minSoil)) {
-    alerts.push({
-      type: "warning",
-      message: `Soil too dry: ${soil}% (minimum ${profile.minSoil}%)`,
-    });
-  }
+    // Tolerance-adjusted thresholds
+    const lightLimit = minLight * (1 - tolerance / 100);
+    const soilLowLimit = minSoil * (1 - tolerance / 100);
+    const soilHighLimit = maxSoil * (1 + tolerance / 100);
 
-  if (Number.isFinite(soil) && soil > Number(profile.maxSoil)) {
-    alerts.push({
-      type: "warning",
-      message: `Soil too wet: ${soil}% (maximum ${profile.maxSoil}%)`,
-    });
-  }
+    if (
+      Number.isFinite(light) &&
+      light < lightLimit
+    ) {
+      alerts.push({
+        type: "warning",
+        message: `Low light: ${light} lux (alert below ${lightLimit.toFixed(1)} lux)`,
+      });
+    }
 
-  if (alerts.length === 0) {
-    alerts.push({
-      type: "healthy",
-      message: "All monitored conditions are within your limits!",
-    });
-  }
+    if (
+      Number.isFinite(soil) &&
+      soil < soilLowLimit
+    ) {
+      alerts.push({
+        type: "warning",
+        message: `Soil too dry: ${soil}% (alert below ${soilLowLimit.toFixed(1)}%)`,
+      });
+    }
 
-  return alerts;
-};
+    if (
+      Number.isFinite(soil) &&
+      soil > soilHighLimit
+    ) {
+      alerts.push({
+        type: "warning",
+        message: `Soil too wet: ${soil}% (alert above ${soilHighLimit.toFixed(1)}%)`,
+      });
+    }
 
-const getPlantStatus = (profile) => {
-  const alerts = getPlantAlerts(profile);
-  return alerts.map(alert => alert.message).join(" | ");
-};
+    if (alerts.length === 0) {
+      alerts.push({
+        type: "healthy",
+        message: "All monitored conditions are within your limits!",
+      });
+    }
 
+    return alerts;
+  };
+
+  const getPlantStatus = (profile) => {
+    const alerts = getPlantAlerts(profile);
+
+    return alerts.map(alert => alert.message).join(" | ");
+  };
 
   return (
     <>
@@ -190,6 +258,7 @@ const getPlantStatus = (profile) => {
         <p>Manage and personalise monitoring for your plants.</p>
       </header>
 
+      {/* LIVE SENSOR READINGS */}
       <section className="status-card">
         <h2>📡 Live Sensor Readings</h2>
 
@@ -201,14 +270,17 @@ const getPlantStatus = (profile) => {
               <h3>☀️ Light</h3>
               <p>{sensors.light_lux} lux</p>
             </div>
+
             <div className="sensor-card">
               <h3>💧 Humidity Raw</h3>
               <p>{sensors.humidity_raw}</p>
             </div>
+
             <div className="sensor-card">
               <h3>🌡️ Temperature Raw</h3>
               <p>{sensors.temperature_raw}</p>
             </div>
+
             <div className="sensor-card">
               <h3>🌱 Soil Moisture</h3>
               <p>{sensors.soil_moisture}%</p>
@@ -222,56 +294,58 @@ const getPlantStatus = (profile) => {
           </p>
         )}
       </section>
-      
-<section className="status-card alert-centre">
-  <h2>🚨 Personalised Plant Alert Centre</h2>
 
-  {!sensors ? (
-    <p>Waiting for live sensor readings...</p>
-  ) : profiles.length === 0 ? (
-    <p>Add a plant profile to start receiving personalised alerts.</p>
-  ) : (
-    <div className="alert-list">
-      {profiles.map(profile => {
-        const alerts = getPlantAlerts(profile);
-        const hasWarning = alerts.some(
-          alert => alert.type === "warning"
-        );
+      {/* PERSONALised ALERT CENTRE */}
+      <section className="status-card alert-centre">
+        <h2>🚨 Personalised Plant Alert Centre</h2>
 
-        return (
-          <div
-            className={`plant-alert ${
-              hasWarning ? "alert-warning" : "alert-healthy"
-            }`}
-            key={profile.id}
-          >
-            <div>
-              <h3>
-                {hasWarning ? "⚠️" : "🌱"} {profile.name}
-              </h3>
+        {!sensors ? (
+          <p>Waiting for live sensor readings...</p>
+        ) : profiles.length === 0 ? (
+          <p>Add a plant profile to start receiving personalised alerts.</p>
+        ) : (
+          <div className="alert-list">
+            {profiles.map(profile => {
+              const alerts = getPlantAlerts(profile);
 
-              {alerts.map((alert, index) => (
-                <p key={index}>
-                  {alert.type === "healthy" ? "🟢" : "🔴"}{" "}
-                  {alert.message}
-                </p>
-              ))}
-            </div>
+              const hasWarning = alerts.some(
+                alert => alert.type === "warning"
+              );
 
-            <button
-              type="button"
-              onClick={() => setViewingProfile(profile)}
-            >
-              View Plant
-            </button>
+              return (
+                <div
+                  className={`plant-alert ${
+                    hasWarning ? "alert-warning" : "alert-healthy"
+                  }`}
+                  key={profile.id}
+                >
+                  <div>
+                    <h3>
+                      {hasWarning ? "⚠️" : "🌱"} {profile.name}
+                    </h3>
+
+                    {alerts.map((alert, index) => (
+                      <p key={index}>
+                        {alert.type === "healthy" ? "🟢" : "🔴"}{" "}
+                        {alert.message}
+                      </p>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setViewingProfile(profile)}
+                  >
+                    View Plant
+                  </button>
+                </div>
+              );
+            })}
           </div>
-        );
-      })}
-    </div>
-  )}
-</section>
+        )}
+      </section>
 
-
+      {/* PLANT PROFILES */}
       <section className="status-card">
         <h2>🌿 My Plant Profiles</h2>
 
@@ -285,6 +359,9 @@ const getPlantStatus = (profile) => {
               <div>
                 <h3>🌱 {profile.name}</h3>
                 <p>Growth stage: {profile.stage}</p>
+                <p>
+                  Alert tolerance: {profile.alertTolerance ?? 20}%
+                </p>
               </div>
 
               <div className="plant-actions">
@@ -314,13 +391,17 @@ const getPlantStatus = (profile) => {
           ))}
         </div>
 
-        <h3>{editingId ? "✏️ Edit Plant Profile" : " Add a New Plant"}</h3>
+        <h3>
+          {editingId ? "✏️ Edit Plant Profile" : "Add a New Plant"}
+        </h3>
 
         <form onSubmit={saveProfile} className="profile-form">
           <label>Plant / Crop Name</label>
           <input
             value={form.name}
-            onChange={e => setForm({...form, name: e.target.value})}
+            onChange={e =>
+              setForm({ ...form, name: e.target.value })
+            }
             placeholder="e.g. Tomato, Rose, Money Plant"
             required
           />
@@ -328,7 +409,9 @@ const getPlantStatus = (profile) => {
           <label>Growth Stage</label>
           <select
             value={form.stage}
-            onChange={e => setForm({...form, stage: e.target.value})}
+            onChange={e =>
+              setForm({ ...form, stage: e.target.value })
+            }
           >
             <option>Seedling</option>
             <option>Vegetative</option>
@@ -342,7 +425,9 @@ const getPlantStatus = (profile) => {
             type="number"
             min="0"
             value={form.minLight}
-            onChange={e => setForm({...form, minLight: e.target.value})}
+            onChange={e =>
+              setForm({ ...form, minLight: e.target.value })
+            }
             required
           />
 
@@ -352,7 +437,9 @@ const getPlantStatus = (profile) => {
             min="0"
             max="100"
             value={form.minSoil}
-            onChange={e => setForm({...form, minSoil: e.target.value})}
+            onChange={e =>
+              setForm({ ...form, minSoil: e.target.value })
+            }
             required
           />
 
@@ -362,9 +449,31 @@ const getPlantStatus = (profile) => {
             min="0"
             max="100"
             value={form.maxSoil}
-            onChange={e => setForm({...form, maxSoil: e.target.value})}
+            onChange={e =>
+              setForm({ ...form, maxSoil: e.target.value })
+            }
             required
           />
+
+          <label>Alert Tolerance (%)</label>
+          <input
+            type="number"
+            min="0"
+            max="50"
+            value={form.alertTolerance}
+            onChange={e =>
+              setForm({
+                ...form,
+                alertTolerance: e.target.value,
+              })
+            }
+            required
+          />
+
+          <p className="form-hint">
+            Allows small sensor fluctuations before triggering alerts.
+            Higher tolerance means fewer alerts.
+          </p>
 
           <button type="submit">
             {editingId ? "Update Plant Profile" : "Save Plant Profile"}
@@ -378,6 +487,7 @@ const getPlantStatus = (profile) => {
         </form>
       </section>
 
+      {/* PLANT DETAILS MODAL */}
       {viewingProfile && (
         <div
           className="modal-overlay"
@@ -404,8 +514,12 @@ const getPlantStatus = (profile) => {
             <p>Minimum light: {viewingProfile.minLight} lux</p>
             <p>Minimum soil moisture: {viewingProfile.minSoil}%</p>
             <p>Maximum soil moisture: {viewingProfile.maxSoil}%</p>
+            <p>
+              Alert tolerance: {viewingProfile.alertTolerance ?? 20}%
+            </p>
 
             <h3>Current Sensor Readings</h3>
+
             {sensors ? (
               <>
                 <p>Light: {sensors.light_lux} lux</p>
