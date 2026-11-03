@@ -71,9 +71,12 @@ def get_sensors():
             "status": "success",
             "entry_id": latest.get("entry_id"),
             "created_at": latest.get("created_at"),
+
             "light_lux": latest.get("field1"),
-            "humidity_raw": latest.get("field2"),
-            "temperature_raw": latest.get("field3"),
+
+            "humidity": latest.get("field6"),
+            "temperature": latest.get("field7"),
+
             "soil_moisture": latest.get("field4"),
             "soil_raw": latest.get("field5")
         })
@@ -87,14 +90,20 @@ def get_sensors():
 
 @app.route("/api/history")
 def get_sensor_history():
+
     if not CHANNEL_ID or not READ_API_KEY:
-        return jsonify({"error": "ThingSpeak credentials are missing"}), 500
+        return jsonify({
+            "error": "ThingSpeak credentials are missing"
+        }), 500
 
     try:
         results = request.args.get("results", 100, type=int)
         results = max(1, min(results or 100, 8000))
 
-        url = f"https://api.thingspeak.com/channels/{CHANNEL_ID}/feeds.json"
+        url = (
+            f"https://api.thingspeak.com/channels/"
+            f"{CHANNEL_ID}/feeds.json"
+        )
 
         response = requests.get(
             url,
@@ -116,9 +125,12 @@ def get_sensor_history():
             history.append({
                 "entry_id": feed.get("entry_id"),
                 "created_at": feed.get("created_at"),
+
                 "light_lux": feed.get("field1"),
-                "humidity_raw": feed.get("field2"),
-                "temperature_raw": feed.get("field3"),
+
+                "humidity": feed.get("field6"),
+                "temperature": feed.get("field7"),
+
                 "soil_moisture": feed.get("field4"),
                 "soil_raw": feed.get("field5")
             })
@@ -139,5 +151,7 @@ def get_sensor_history():
             "error": "Invalid response from ThingSpeak"
         }), 502
 
+
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
+

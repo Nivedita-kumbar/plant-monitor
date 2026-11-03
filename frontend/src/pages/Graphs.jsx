@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import {
   ResponsiveContainer,
@@ -48,18 +47,18 @@ const chartConfigs = [
     description: "Calibrated relative soil moisture",
   },
   {
-    title: "Humidity Sensor",
+    title: "Humidity",
     key: "humidity",
-    unit: "ADC",
+    unit: "%",
     color: "#3996c9",
-    description: "Raw analog sensor reading",
+    description: "Ambient relative humidity",
   },
   {
-    title: "Temperature Sensor",
+    title: "Temperature",
     key: "temperature",
-    unit: "ADC",
+    unit: "°C",
     color: "#d66b58",
-    description: "Raw analog sensor reading",
+    description: "Ambient temperature",
   },
 ];
 
@@ -80,7 +79,8 @@ function Graphs() {
 
   const hasLiveHardware =
     activeZone?.id === "ZONE-01" ||
-    activeZone?.deviceId === "ESP32-001";
+    activeZone?.deviceId === "ESP32-001" ||
+    activeZone?.device === "ESP32-001";
 
   // Keep zone list updated
   useEffect(() => {
@@ -136,13 +136,17 @@ function Graphs() {
           timestamp: new Date(item.created_at).getTime(),
           light: Number(item.light_lux),
           soil: Number(item.soil_moisture),
-          humidity: Number(item.humidity_raw),
-          temperature: Number(item.temperature_raw),
+
+          // Backend now returns calibrated values
+          humidity: Number(item.humidity),
+          temperature: Number(item.temperature),
         }))
         .filter(
           (item) =>
             Number.isFinite(item.timestamp) &&
-            item.created_at
+            item.created_at &&
+            Number.isFinite(item.humidity) &&
+            Number.isFinite(item.temperature)
         )
         .sort((a, b) => a.timestamp - b.timestamp);
 
@@ -229,6 +233,7 @@ function Graphs() {
             border: "2px solid #39875b",
             backgroundColor: "#245c3a",
             color: "#ffffff",
+            colorScheme: "dark",
             fontSize: "15px",
             fontWeight: "600",
             minWidth: "240px",
@@ -265,7 +270,7 @@ function Graphs() {
         <p>Zone ID: {activeZone?.id || selectedZone}</p>
 
         <p>
-          Hardware: {activeZone?.deviceId || "Not assigned"}
+          Hardware: {activeZone?.deviceId || activeZone?.device || "Not assigned"}
         </p>
 
         <p>
@@ -342,6 +347,16 @@ function Graphs() {
                 <div className="summary-card">
                   <span>Latest Soil Moisture</span>
                   <h3>{latest.soil}%</h3>
+                </div>
+
+                <div className="summary-card">
+                  <span>Latest Humidity</span>
+                  <h3>{latest.humidity}%</h3>
+                </div>
+
+                <div className="summary-card">
+                  <span>Latest Temperature</span>
+                  <h3>{latest.temperature}°C</h3>
                 </div>
               </div>
 

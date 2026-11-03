@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -204,13 +203,21 @@ function ZoneDetails() {
                   </div>
 
                   <div className="sensor-card">
-                    <h3>🌡️ Temperature Raw</h3>
-                    <p>{sensors.temperature_raw}</p>
+                    <h3>🌡️ Temperature</h3>
+                    <p>
+                      {sensors.temperature != null
+                        ? `${Number(sensors.temperature).toFixed(1)} °C`
+                        : "--"}
+                    </p>
                   </div>
 
                   <div className="sensor-card">
-                    <h3>💦 Humidity Raw</h3>
-                    <p>{sensors.humidity_raw}</p>
+                    <h3>💦 Humidity</h3>
+                    <p>
+                      {sensors.humidity != null
+                        ? `${Number(sensors.humidity).toFixed(1)} %`
+                        : "--"}
+                    </p>
                   </div>
 
                 </div>

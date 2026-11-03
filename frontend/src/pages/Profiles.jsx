@@ -1,4 +1,5 @@
 
+
 import { useEffect, useState } from "react";
 
 const defaultThresholds = {
@@ -30,12 +31,10 @@ function Profiles() {
     ...defaultThresholds,
   });
 
-  // Save profiles
   useEffect(() => {
     localStorage.setItem("plantProfiles", JSON.stringify(profiles));
   }, [profiles]);
 
-  // Maintain selected profile
   useEffect(() => {
     if (profiles.length > 0 && !profiles.some(p => p.id === selectedId)) {
       setSelectedId(profiles[0].id);
@@ -46,7 +45,7 @@ function Profiles() {
     }
   }, [profiles, selectedId]);
 
-  // Fetch live sensor data
+  // Fetch calibrated live sensor data
   const fetchSensors = async () => {
     try {
       const response = await fetch(
@@ -76,7 +75,6 @@ function Profiles() {
     return () => clearInterval(interval);
   }, []);
 
-  // Reset form
   const resetForm = () => {
     setEditingId(null);
 
@@ -87,7 +85,6 @@ function Profiles() {
     });
   };
 
-  // Save or update profile
   const saveProfile = (e) => {
     e.preventDefault();
 
@@ -135,7 +132,6 @@ function Profiles() {
     resetForm();
   };
 
-  // Edit profile
   const editProfile = (profile) => {
     setForm({
       name: profile.name,
@@ -155,7 +151,6 @@ function Profiles() {
     });
   };
 
-  // Delete profile
   const deleteProfile = (id) => {
     const confirmed = window.confirm(
       "Are you sure you want to delete this plant profile?"
@@ -180,7 +175,7 @@ function Profiles() {
     profile => profile.id === selectedId
   );
 
-  // Calculate personalised alerts using tolerance
+  // Personalised alerts
   const getPlantAlerts = (profile) => {
     if (!sensors || !profile) {
       return [{
@@ -200,35 +195,25 @@ function Profiles() {
 
     const alerts = [];
 
-    // Tolerance-adjusted thresholds
     const lightLimit = minLight * (1 - tolerance / 100);
     const soilLowLimit = minSoil * (1 - tolerance / 100);
     const soilHighLimit = maxSoil * (1 + tolerance / 100);
 
-    if (
-      Number.isFinite(light) &&
-      light < lightLimit
-    ) {
+    if (Number.isFinite(light) && light < lightLimit) {
       alerts.push({
         type: "warning",
         message: `Low light: ${light} lux (alert below ${lightLimit.toFixed(1)} lux)`,
       });
     }
 
-    if (
-      Number.isFinite(soil) &&
-      soil < soilLowLimit
-    ) {
+    if (Number.isFinite(soil) && soil < soilLowLimit) {
       alerts.push({
         type: "warning",
         message: `Soil too dry: ${soil}% (alert below ${soilLowLimit.toFixed(1)}%)`,
       });
     }
 
-    if (
-      Number.isFinite(soil) &&
-      soil > soilHighLimit
-    ) {
+    if (Number.isFinite(soil) && soil > soilHighLimit) {
       alerts.push({
         type: "warning",
         message: `Soil too wet: ${soil}% (alert above ${soilHighLimit.toFixed(1)}%)`,
@@ -247,7 +232,6 @@ function Profiles() {
 
   const getPlantStatus = (profile) => {
     const alerts = getPlantAlerts(profile);
-
     return alerts.map(alert => alert.message).join(" | ");
   };
 
@@ -258,32 +242,36 @@ function Profiles() {
         <p>Manage and personalise monitoring for your plants.</p>
       </header>
 
-      {/* LIVE SENSOR READINGS */}
+      {/* LIVE CALIBRATED SENSOR READINGS */}
       <section className="status-card">
         <h2>📡 Live Sensor Readings</h2>
 
         {error && <p className="error">{error}</p>}
 
+        {!sensors && !error && (
+          <p>Fetching live sensor readings...</p>
+        )}
+
         {sensors && (
           <div className="sensor-grid">
             <div className="sensor-card">
               <h3>☀️ Light</h3>
-              <p>{sensors.light_lux} lux</p>
+              <p>{Number(sensors.light_lux).toFixed(2)} lux</p>
             </div>
 
             <div className="sensor-card">
-              <h3>💧 Humidity Raw</h3>
-              <p>{sensors.humidity_raw}</p>
+              <h3>💧 Air Humidity</h3>
+              <p>{Number(sensors.humidity).toFixed(1)}%</p>
             </div>
 
             <div className="sensor-card">
-              <h3>🌡️ Temperature Raw</h3>
-              <p>{sensors.temperature_raw}</p>
+              <h3>🌡️ Temperature</h3>
+              <p>{Number(sensors.temperature).toFixed(1)} °C</p>
             </div>
 
             <div className="sensor-card">
               <h3>🌱 Soil Moisture</h3>
-              <p>{sensors.soil_moisture}%</p>
+              <p>{Number(sensors.soil_moisture).toFixed(0)}%</p>
             </div>
           </div>
         )}
@@ -295,7 +283,7 @@ function Profiles() {
         )}
       </section>
 
-      {/* PERSONALised ALERT CENTRE */}
+      {/* PERSONALISED ALERT CENTRE */}
       <section className="status-card alert-centre">
         <h2>🚨 Personalised Plant Alert Centre</h2>
 
@@ -518,14 +506,14 @@ function Profiles() {
               Alert tolerance: {viewingProfile.alertTolerance ?? 20}%
             </p>
 
-            <h3>Current Sensor Readings</h3>
+            <h3>Current Calibrated Sensor Readings</h3>
 
             {sensors ? (
               <>
-                <p>Light: {sensors.light_lux} lux</p>
-                <p>Soil moisture: {sensors.soil_moisture}%</p>
-                <p>Humidity raw: {sensors.humidity_raw}</p>
-                <p>Temperature raw: {sensors.temperature_raw}</p>
+                <p>Light: {Number(sensors.light_lux).toFixed(2)} lux</p>
+                <p>Air humidity: {Number(sensors.humidity).toFixed(1)}%</p>
+                <p>Temperature: {Number(sensors.temperature).toFixed(1)} °C</p>
+                <p>Soil moisture: {Number(sensors.soil_moisture).toFixed(0)}%</p>
               </>
             ) : (
               <p>Sensor data unavailable.</p>
